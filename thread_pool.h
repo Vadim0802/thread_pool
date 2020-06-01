@@ -32,15 +32,13 @@ private:
 		bool get_isPerformed() { return isPerformed; };
 		bool get_isCompleted() { return isCompleted; };
 		int get_id() { return worker_id; };
-		void set_isInQueue_true() { isInQueue = true; };
-		void set_isInQueue_false() { isInQueue = false; };
-		void set_isPerformed_true() { isPerformed = true; };
-		void set_isPerformed_false() { isPerformed = false; };
-		void set_isCompleted_true() { isCompleted = true; };
-		void set_isCompleted_false() { isCompleted = false; };
+		void set_isInQueue(bool set) { isInQueue = set; };
+		void set_isPerformed(bool set) { isPerformed = set; };
+		void set_isCompleted(bool set) { isCompleted = set; };
 		std::function<void()> get_function() { return func; };
 	};
 	bool _done = false;
+	bool _threadEndWork = false;
 	std::condition_variable _condition;
 	std::mutex _mutex;
 	std::vector<std::thread> _threads;
@@ -58,7 +56,8 @@ public:
 					std::function<void()> task;
 					{
 						std::unique_lock<std::mutex> lock{ _mutex };
-						_condition.wait(lock, [=] {return _done || !_workerQueue.empty(); });
+						
+						_condition.wait(lock, [=] {return !_workerQueue.empty() || _threadEndWork; });
 
 						if (_done && _workerQueue.empty())
 							break;
@@ -66,12 +65,16 @@ public:
 						task = _workerQueue.front()->get_function();
 						_workerQueue_buffer.push_back(_workerQueue.front());
 						_workerQueue.pop_front();
-						_workerQueue_buffer.back()->set_isInQueue_false();
-						_workerQueue_buffer.back()->set_isPerformed_true();
+						_workerQueue_buffer.back()->set_isInQueue(false);
+						_workerQueue_buffer.back()->set_isPerformed(true);
 					}
 					task();
-					_workerQueue_buffer.back()->set_isPerformed_false();
-					_workerQueue_buffer.back()->set_isCompleted_true();
+					_workerQueue_buffer.back()->set_isPerformed(false);
+					_workerQueue_buffer.back()->set_isCompleted(true);
+					if (_workerQueue.empty() && _done )
+					{
+						_threadEndWork = true;
+					}
 				}
 			});
 		}
@@ -79,6 +82,7 @@ public:
 
 	~Thread_Pool()
 	{
+
 		{
 			std::unique_lock<std::mutex> lock(_mutex);
 			_done = true;
