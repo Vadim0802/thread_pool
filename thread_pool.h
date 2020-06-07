@@ -14,8 +14,8 @@ private:
 	class Task
 	{
 	private:
-		std::string					_statusWork;
-		std::function<void()>		_job;
+		std::string	          _statusWork;
+		std::function<void()> _job;
 	public:
 		Task(std::function<void()> job)
 		{
@@ -26,10 +26,10 @@ private:
 		std::string getStatusWork() { return this->_statusWork; };
 		void setStatusWork(std::string status) { this->_statusWork = status; };
 	};
-	std::mutex							_mutex;
-	std::condition_variable				_condition;
-	std::vector<std::thread>			_threads;
-	std::vector<std::shared_ptr<Task>>	_workerQueue;
+	std::mutex	                       _mutex;
+	std::condition_variable	           _condition;
+	std::vector<std::thread>           _threads;
+	std::vector<std::shared_ptr<Task>> _workerQueue;
 
 public:
 	auto push_task(std::function<void()> job)
