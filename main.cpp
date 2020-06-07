@@ -4,18 +4,22 @@
 
 void func1()
 {
-	//std::this_thread::sleep_for(std::chrono::seconds(3));
-	std::cout << std::this_thread::get_id() << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	std::cout << std::this_thread::get_id() << "\t";
 }
 
-int main()
+
+int main() 
 {
-	Thread_Pool pool(2);
+	ThreadPool pool(2);
 
 	std::thread thr([&] {
-		for (int i = 0; i < 10000; i++) {
-			pool.push_task(func1, i);
+		for (int i = 0; i < 10; i++) {
+			pool.push_task(func1);
 		}
 	});
 	thr.detach();
+
+	auto test = pool.push_task(func1);
+	std::cout << test->getStatusWork() << std::endl;
 }

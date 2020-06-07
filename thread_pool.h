@@ -1,150 +1,97 @@
-#pragma once
+#include <mutex>
 #include <thread>
-#include <functional>
 #include <condition_variable>
-#include <queue>
-#include <vector>
-#include <deque>
 #include <memory>
-#include <future>
+#include <string>
+#include <vector>
+#include <functional>
 
-class Thread_Pool
+
+
+class ThreadPool
 {
 private:
-	class Worker
+	class Task
 	{
 	private:
-		std::function<void()> func;
-		uint8_t worker_id;
-		bool isInQueue = false;
-		bool isPerformed = false;
-		bool isCompleted = false;
-
+		std::string					_statusWork;
+		std::function<void()>		_job;
 	public:
-		Worker(std::function<void()> worker, int id)
+		Task(std::function<void()> job)
 		{
-			this->func = worker;
-			this->worker_id = id;
-			this->isInQueue = true;
+			this->_job = job;
+			this->_statusWork = "inQueue";
 		}
-		~Worker() {};
-		bool get_isInQueue() { return isInQueue; };
-		bool get_isPerformed() { return isPerformed; };
-		bool get_isCompleted() { return isCompleted; };
-		int get_id() { return worker_id; };
-		void set_isInQueue(bool set) { isInQueue = set; };
-		void set_isPerformed(bool set) { isPerformed = set; };
-		void set_isCompleted(bool set) { isCompleted = set; };
-		std::function<void()> get_function() { return func; };
+		void operator()() { _job(); };
+		std::string getStatusWork() { return this->_statusWork; };
+		void setStatusWork(std::string status) { this->_statusWork = status; };
 	};
-	bool _done = false;
-	bool _threadEndWork = false;
-	std::condition_variable _condition;
-	std::mutex _mutex;
-	std::vector<std::thread> _threads;
-	std::deque<std::shared_ptr<Worker>> _workerQueue;
-	std::vector<std::shared_ptr<Worker>> _workerQueue_buffer;
+	std::mutex							_mutex;
+	std::condition_variable				_condition;
+	std::vector<std::thread>			_threads;
+	std::vector<std::shared_ptr<Task>>	_workerQueue;
 
 public:
-	Thread_Pool(unsigned int threadCount = 1)
+	auto push_task(std::function<void()> job)
 	{
+		std::unique_lock<std::mutex> lock(_mutex);
+		Task worker(job);
+		_workerQueue.push_back(std::make_shared<Task>(std::move(worker)));
+
+		_condition.notify_one();
+
+		return _workerQueue.back();
+	}
+
+	std::string getStatus(std::shared_ptr<Task> ptr) { return ptr->getStatusWork(); };
+
+	ThreadPool(unsigned int threadCount)
+	{
+		int MAX_THREADS = std::thread::hardware_concurrency() - 1;
+		if (threadCount > MAX_THREADS)
+			threadCount = MAX_THREADS;
+
 		for (int i = 0; i < threadCount; i++)
 		{
 			_threads.emplace_back([=] {
 				while (true)
 				{
-					std::function<void()> task;
+					for (int j = 0; j < _workerQueue.size(); j++)
 					{
-						std::unique_lock<std::mutex> lock{ _mutex };
-						
-						_condition.wait(lock, [=] {return !_workerQueue.empty() || _threadEndWork; });
+						auto Task = _workerQueue[j];
 
-						if (_done && _workerQueue.empty())
-							break;
-
-						task = _workerQueue.front()->get_function();
-						_workerQueue_buffer.push_back(_workerQueue.front());
-						_workerQueue.pop_front();
-						_workerQueue_buffer.back()->set_isInQueue(false);
-						_workerQueue_buffer.back()->set_isPerformed(true);
+						if (Task->getStatusWork() == "inQueue")
+						{
+							_mutex.lock();
+							(*Task).setStatusWork("inThreading");
+							_mutex.unlock();
+							(*Task)();
+							(*Task).setStatusWork("Completed");
+						}
 					}
-					task();
-					_workerQueue_buffer.back()->set_isPerformed(false);
-					_workerQueue_buffer.back()->set_isCompleted(true);
-					if (_workerQueue.empty() && _done )
+
+					std::unique_lock<std::mutex> lock(_mutex);
+					_condition.wait(lock, [this] {return !_workerQueue.empty(); });
+
+					bool threadEndWork = true;
+
+					for (auto iter : _workerQueue)
 					{
-						_threadEndWork = true;
+						if (iter->getStatusWork() != "Completed")
+							threadEndWork = false;
 					}
+					if (threadEndWork)
+						break;
 				}
 			});
 		}
 	}
-
-	~Thread_Pool()
+	~ThreadPool()
 	{
-
-		{
-			std::unique_lock<std::mutex> lock(_mutex);
-			_done = true;
-		}
-
-		_condition.notify_all();
-
 		for (auto& t : _threads)
 		{
 			if (t.joinable())
 				t.join();
-		}
-	}
-
-	void push_task(std::function<void()> task, int id)
-	{
-		Worker job(task, id);
-		auto func = std::make_shared<Worker>(std::move(job));
-		{
-			std::unique_lock<std::mutex> lock(_mutex);
-			_workerQueue.push_back(func);
-		}
-		
-		_condition.notify_one();
-	}
-
-	bool isInQueue(int id)
-	{
-		for (int i = 0; i < _workerQueue.size(); i++)
-		{
-			auto tmp = _workerQueue[i];
-			auto tmp_2 = *tmp;
-			if (tmp_2.get_id() == id)
-			{
-				return tmp_2.get_isInQueue();
-			}
-		}
-	}
-
-	bool isPerformed(int id)
-	{
-		for (int i = 0; i < _workerQueue_buffer.size(); i++)
-		{
-			auto tmp = _workerQueue_buffer[i];
-			auto tmp_2 = *tmp;
-			if (tmp_2.get_id() == id)
-			{
-				return tmp_2.get_isPerformed();
-			}
-		}
-	}
-
-	bool isCompleted(int id)
-	{
-		for (int i = 0; i < _workerQueue_buffer.size(); i++)
-		{
-			auto tmp = _workerQueue_buffer[i];
-			auto tmp_2 = *tmp;
-			if (tmp_2.get_id() == id)
-			{
-				return tmp_2.get_isCompleted();
-			}
 		}
 	}
 };
